@@ -1,0 +1,21 @@
+{
+  "name": "gachiakuta-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "gifencoder": "^2.0.1",
+    "glob": "^10.3.10",
+    "mongoose": "^8.0.3",
+    "omggif": "^1.0.10",
+    "uuid": "^9.0.1"
+  },
+  "overrides": {
+    "canvas": "npm:@napi-rs/canvas@^0.1.65"
+  }
+}
