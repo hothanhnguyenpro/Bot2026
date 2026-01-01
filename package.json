@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.65",
@@ -17,5 +18,8 @@
   },
   "overrides": {
     "canvas": "npm:@napi-rs/canvas@^0.1.65"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
   }
 }
