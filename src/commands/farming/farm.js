@@ -1,116 +1,135 @@
-const { EmbedBuilder, AttachmentBuilder } = require('discord.js'); // 👈 Đã thêm AttachmentBuilder vào đây
 const User = require('../../models/User');
 const Item = require('../../models/Item');
+const { ITEMS } = require('../../utils/items');
+// 👇 Thêm AttachmentBuilder vào đây
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { v4: uuidv4 } = require('uuid');
-const ITEM_DATA = require('../../data/items');
-const { createCanvas, loadImage } = require('@napi-rs/canvas'); // Thư viện vẽ
+const { prefix } = require('../../../config.json');
+const { t, getName } = require('../../utils/locales');
+// 👇 Thêm thư viện xử lý file
 const path = require('path');
+const fs = require('fs');
 
-// Lấy danh sách rác từ file data
-const trashList = Object.keys(ITEM_DATA).filter(k => ITEM_DATA[k].type === 'Trash' || ITEM_DATA[k].type === 'Jinki_Base');
-
-const cooldowns = new Set();
+const COOLDOWN = 25;
 
 module.exports = {
     name: 'farm',
-    aliases: ['scavenge', 'nhatrac'],
-    description: 'Tìm kiếm rác tại khu vực hiện tại (Visual)',
+    description: 'Tìm kiếm vật phẩm (Common - Rare)',
     
     async execute(client, message, args) {
-        const userId = message.author.id;
+        // 1. Lấy ngôn ngữ User
+        const user = await User.findOne({ discordId: message.author.id });
+        const lang = user ? user.language : 'vi';
 
-        // 1. Check Cooldown
-        if (cooldowns.has(userId)) return message.reply('⏳ **Thở đi!** Đợi 5 giây nữa.');
-        
-        const user = await User.findOne({ discordId: userId });
-        if (!user) return message.reply('❌ Chưa start game!');
+        if (!user) return message.reply(t('error_no_user', lang));
 
-        cooldowns.add(userId);
-        setTimeout(() => cooldowns.delete(userId), 5000);
-
-        // 2. Random trượt (30%)
-        const chance = Math.random();
-        if (chance < 0.3) {
-             const messages = ["Không thấy gì...", "Chuột tha mất rồi...", "Khu này sạch quá mức."];
-             return message.reply(messages[Math.floor(Math.random() * messages.length)]);
+        // 2. Check Cooldown
+        if (user.lastHunt) {
+            const diff = (new Date() - new Date(user.lastHunt)) / 1000;
+            if (diff < COOLDOWN) return message.reply(t('farm_cooldown', lang, { time: Math.ceil(COOLDOWN - diff) }));
         }
 
-        // 3. Drop Item Logic
-        const randomKey = trashList[Math.floor(Math.random() * trashList.length)];
-        const itemInfo = ITEM_DATA[randomKey];
-        const potential = parseFloat(Math.random().toFixed(4)); 
+        // 3. Random đồ từ Common (1) đến Rare (3)
+        const allowedItems = Object.keys(ITEMS).filter(key => ITEMS[key].rarity <= 3);
+        const randomId = allowedItems[Math.floor(Math.random() * allowedItems.length)];
+        const itemBase = ITEMS[randomId];
         
-        // Lưu Database
-        const newItem = new Item({
-            uid: uuidv4(),
-            baseId: randomKey,
-            ownerId: userId,
-            stats: { attack: 0, potential: potential, durability: 100 },
-            ownerHistory: [userId]
+        const itemName = getName(itemBase.name, lang);
+
+        // --- 🆕 XỬ LÝ HÌNH ẢNH ITEM ---
+        const imagePath = path.join(__dirname, `../../../assets/items/${randomId}.png`);
+        let fileAttachment = null;
+        let thumbnailUrl = 'https://i.imgur.com/3Zn3e5n.png'; // Ảnh mặc định nếu thiếu file
+
+        if (fs.existsSync(imagePath)) {
+            // Tạo file đính kèm
+            fileAttachment = new AttachmentBuilder(imagePath, { name: 'loot.png' });
+            thumbnailUrl = 'attachment://loot.png';
+        }
+        // ------------------------------
+
+        // 4. Random Tiềm năng & Chất lượng
+        const potential = parseFloat(Math.random().toFixed(2)); 
+        let qualityKey = 'farm_quality_normal';
+        if (potential > 0.8) qualityKey = 'farm_quality_good';
+        if (potential < 0.2) qualityKey = 'farm_quality_bad';
+        
+        const qualityText = t(qualityKey, lang);
+
+        // Màu sắc
+        let color = '#95a5a6';
+        if (itemBase.rarity === 2) color = '#2ecc71';
+        if (itemBase.rarity === 3) color = '#3498db';
+
+        // 5. Tạo Embed
+        const embed = new EmbedBuilder()
+            .setTitle(t('farm_found_title', lang, { item: itemName }))
+            .setDescription(t('farm_found_desc', lang, { 
+                rarity: itemBase.rarity,
+                dmg: itemBase.damage,
+                quality: qualityText,
+                pot: Math.floor(potential * 100)
+            }))
+            .setColor(color)
+            .setThumbnail(thumbnailUrl); // 👈 Hiển thị ảnh nhỏ bên phải
+
+        // 6. Tạo Nút
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('pick').setLabel(t('farm_pick', lang)).setStyle(ButtonStyle.Success).setEmoji('🎒'),
+            new ButtonBuilder().setCustomId('drop').setLabel(t('farm_drop', lang)).setStyle(ButtonStyle.Secondary).setEmoji('🗑️')
+        );
+
+        // 7. Gửi tin nhắn (Kèm file ảnh nếu có)
+        const replyPayload = { embeds: [embed], components: [row] };
+        if (fileAttachment) replyPayload.files = [fileAttachment];
+
+        const reply = await message.reply(replyPayload);
+        
+        // 8. Xử lý sự kiện
+        const collector = reply.createMessageComponentCollector({ 
+            filter: i => i.user.id === message.author.id, 
+            time: 15000 
         });
-        await newItem.save();
 
-        // Cộng thưởng
-        const expGain = 10;
-        const gallaGain = Math.floor(Math.random() * 5) + 1;
-        user.exp += expGain;
-        user.balance += gallaGain;
-        await user.save();
+        collector.on('collect', async i => {
+            if (i.customId === 'pick') {
+                const newItem = new Item({
+                    uid: uuidv4(),
+                    baseId: randomId,
+                    ownerId: user.discordId,
+                    stats: {
+                        attack: itemBase.damage, 
+                        durability: 50 + Math.floor(Math.random() * 50),
+                        potential: potential,
+                        killCount: 0,
+                        exp: 0,
+                        level: 1
+                    },
+                    ownerHistory: [{ userId: user.discordId }]
+                });
 
-        // --- 4. PHẦN VẼ ẢNH (VISUAL) ---
-        const canvas = createCanvas(500, 300);
-        const ctx = canvas.getContext('2d');
+                await newItem.save();
+                
+                user.lastHunt = new Date();
+                user.exp += 5;
+                await user.save();
 
-        // A. Vẽ nền (Khu vực)
-        try {
-            const bgPath = path.join(__dirname, '../../../assets/backgrounds/slum_bg.png');
-            const bg = await loadImage(bgPath);
-            ctx.drawImage(bg, 0, 0, 500, 300);
-        } catch (e) {
-            // Fallback: Nếu chưa có ảnh nền thì vẽ màu nâu đất
-            ctx.fillStyle = '#4a3b32'; 
-            ctx.fillRect(0, 0, 500, 300);
-        }
-
-        // B. Vẽ Nhân vật
-        let charFile = 'scavenger.png'; // Mặc định
-        if (user.class === 'Tribal') charFile = 'tribal.png';
-        if (user.class === 'Vandal') charFile = 'vandal.png';
-
-        try {
-            const charPath = path.join(__dirname, `../../../assets/characters/${charFile}`);
-            const charImg = await loadImage(charPath);
-            ctx.drawImage(charImg, 50, 100, 150, 150); 
-        } catch (e) {
-            // Không có ảnh nhân vật thì bỏ qua
-        }
-
-        // C. Vẽ Vật phẩm tìm được
-        try {
-            const itemPath = path.join(__dirname, `../../../assets/items/${itemInfo.baseId}.png`);
-            const itemIcon = await loadImage(itemPath);
-            
-            // Hiệu ứng hào quang nếu là đồ xịn
-            if (potential > 0.9) {
-                ctx.shadowColor = '#FFD700';
-                ctx.shadowBlur = 30;
+                await i.update({ 
+                    content: t('farm_pick_success', lang, { item: itemName, quality: qualityText, uid: newItem.uid.split('-')[0] }), 
+                    embeds: [], components: [], files: [] // Xóa ảnh khi nhặt xong cho gọn
+                });
+            } else {
+                user.lastHunt = new Date();
+                await user.save();
+                await i.update({ 
+                    content: t('farm_drop_success', lang, { item: itemName }), 
+                    embeds: [], components: [], files: [] 
+                });
             }
-            
-            ctx.drawImage(itemIcon, 280, 80, 100, 100); // Vẽ lơ lửng bên phải
-            ctx.shadowBlur = 0; // Reset
-        } catch (e) {
-            // Fallback: Vẽ dấu chấm hỏi nếu chưa có ảnh item
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '50px Arial';
-            ctx.fillText('?', 300, 150);
-        }
+        });
 
-        // D. Gửi ảnh
-        const attachment = new AttachmentBuilder(await canvas.encode('png'), { name: 'farm-result.png' });
-        
-        message.reply({ 
-            content: `🗑️ **${message.author.username}** lục lọi và tìm thấy: **${itemInfo.emoji} ${itemInfo.name}**!`, 
-            files: [attachment] 
+        collector.on('end', collected => {
+            if (collected.size === 0) reply.edit({ content: t('farm_timeout', lang), components: [], files: [] });
         });
     }
 };

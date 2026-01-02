@@ -1,28 +1,33 @@
 const mongoose = require('mongoose');
 
 const ItemSchema = new mongoose.Schema({
-    // UID riêng biệt cho từng món đồ (để định danh hàng độc bản)
+    // UID: Mã định danh duy nhất (VD: uuid-v4)
     uid: { type: String, required: true, unique: true }, 
     
-    // ID gốc (ví dụ: "plastic_bottle") để biết nó là cái gì
+    // BaseID: Để map với file utils/items.js (VD: "brick", "katana")
     baseId: { type: String, required: true },
     
-    // Chủ sở hữu hiện tại (Discord ID)
-    ownerId: { type: String, required: true },
+    // OwnerID: Discord ID của người sở hữu hiện tại
+    ownerId: { type: String, required: true, index: true }, // Thêm index để tìm đồ cho nhanh
     
-    // Chỉ số động (Dynamic Stats) - Dùng Map để linh hoạt
+    // Chỉ số động (Riêng biệt cho từng món)
     stats: {
-        attack: { type: Number, default: 0 },
-        durability: { type: Number, default: 100 }, // Độ bền
-        potential: { type: Number, default: 0 },    // Chỉ số tiềm năng (0.0 - 1.0)
-        killCount: { type: Number, default: 0 },    // Đã giết bao nhiêu quái
-        exp: { type: Number, default: 0 }           // XP đã bơm vào (cho tính năng nuôi rác)
+        attack: { type: Number, default: 0 },    // Sát thương cộng thêm
+        durability: { type: Number, default: 100 }, 
+        potential: { type: Number, default: 0 }, // 0.0 - 1.0 (Độ thức tỉnh Jinki)
+        killCount: { type: Number, default: 0 }, // Đã giết bao nhiêu quái
+        exp: { type: Number, default: 0 },       // Nuôi rác
+        level: { type: Number, default: 1 }      // Cấp độ của món đồ
     },
 
-    // Lịch sử sở hữu (Lưu danh sách ID những người từng cầm món này)
-    ownerHistory: [{ type: String }],
+    // Lịch sử người cầm (Quan trọng cho cốt truyện)
+    ownerHistory: [{ 
+        userId: String, 
+        receivedAt: { type: Date, default: Date.now } 
+    }],
 
-    // Thời gian tạo ra món đồ này
+    isEquipped: { type: Boolean, default: false }, // Đang cầm hay đang cất?
+
     createdAt: { type: Date, default: Date.now }
 });
 
